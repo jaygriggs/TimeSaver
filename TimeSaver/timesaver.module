@@ -1,0 +1,1246 @@
+<?php
+// $Id: timesaver.module,v 1.9 2015/08/22  Exp $
+
+/**
+ * @file
+ * Timesaver module file.
+ *
+ * Provides the Drupal hooks to make Timesaver functional!
+ */
+
+set_time_limit(900);  //this is done to suit the long execution time for PHPExcel when generating a report.
+include_once("timesaver_config.php");
+
+function timesaver_perm() {
+  return array('administer Timesaver', 'Timesaver supervisor', 'Timesaver finance');
+}
+
+function timesaver_user_access() {
+  global $user;
+  if ($user->uid>0) return TRUE;
+  else return FALSE;
+}
+
+function timesaver_menu() {
+  $items = array();
+
+  $items['user/%user/timesaver'] = array(
+    'title' => 'Timesheet System',
+    'description' => 'Configure Timesaver\'s user options.',
+    'page callback' => 'timesaver_user_profile',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['admin/settings/timesaver'] = array(
+    'title' => 'Timesaver',
+    'description' => 'Configure Timesaver\'s configuration options.',
+    'page callback' => 'timesaver_admin',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['timesaver'] = array(
+    'title' => 'Timesheet System',
+    'page callback' => 'timesaver_main',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['timesaver_ajax'] = array(
+    'title' => 'Timesheet System Ajax',
+    'page callback' => 'timesaver_ajax',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['timesaver_reports'] = array(
+    'title' => 'Timesheet System Ajax',
+    'page callback' => 'timesaver_reports',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['timesaver_entry'] = array(
+    'title' => 'Timesheet System Entry',
+    'page callback' => 'timesaver_entry',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['timesaver_approvals'] = array(
+    'title' => 'Timesheet Approval Entry',
+    'page callback' => 'timesaver_approvals',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['timesaver_download/%'] = array(
+    'title' => 'Download an Excel Timesheet Report',
+    'page arguments' => array(1),
+    'page callback' => 'timesaver_download',
+    'access callback' => 'timesaver_user_access',
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['timesaver_client_upload'] = array(
+    'title' => 'timesaver',
+    'access callback' => 'timesaver_client_user_access',
+    'page callback' => 'timesaver_client_upload',
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+
+}
+
+
+function timesaver_client_user_access(){
+
+  if (db_result(db_query("SELECT count(*) FROM {users} WHERE name='%s' AND pass='%s'", $_POST['username'], $_POST['password'])) == 1) {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
+
+}
+
+function timesaver_client_upload(){
+  global $user;
+  include_once( drupal_get_path('module', 'timesaver') . "/timesaver.class.php");
+
+  switch ($_POST['op']) {
+    case 'testconnection':
+      // Function should only execute if the access permission has been verified in timesaver_client_user_access()
+      // Return success XML record to the desktop client
+      header("Cache-Control: no-store, no-cache, must-revalidate");
+      header("content-type: application/xml");
+      echo "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n";
+      echo "<data>";
+      echo "<status>success</status>";
+      echo "<statusid>1</statusid>";
+      echo "</data>";
+      break;
+
+    case 'getdropdown':
+      header("Cache-Control: no-store, no-cache, must-revalidate");
+      header("content-type: application/xml");
+      echo "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n";
+      echo "<data>";
+      $whichddl = $_POST['whichdropdown'];
+      $selected = $_POST['selected'];
+      $ts=new Timesaver();
+      switch($whichddl){
+        case 1:
+          $title=t('Activity ID');
+          $lid=variable_get('timesaver_list_id_activities', 0);
+          $list=$ts->get_activities_drop_down(0);
+          break;
+
+        case 2:
+          $title=t('Project ID');
+          $lid=variable_get('timesaver_list_id_projects', 0);
+          $list=$ts->get_project_drop_down_from_activity_id($selected);
+          break;
+
+        case 3:
+          $title=t('Task ID');
+          $lid=variable_get('timesaver_list_id_tasks', 0);
+          $list=$ts->get_task_drop_down_from_activity_id($selected);
+          break;
+
+        default:
+          $title=$LANG_NEXTIME_HEADER['nextime_activity_id'];
+          $lid=variable_get('timesaver_list_id_activities', 0);
+          break;
+      }
+
+      $list=str_replace("&","&amp;",$list);
+      echo $list;
+      echo "<listname>".htmlentities($title)."</listname>";
+      echo "</data>";
+      break;
+
+    case 'save':
+      $ts=new Timesaver();
+      header("Cache-Control: no-store, no-cache, must-revalidate");
+      header("content-type: application/xml");
+      echo "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n";
+
+      $uid = intval(db_result(db_query("SELECT uid FROM {users} WHERE name = '%s' AND pass = '%s'", $_POST['username'], $_POST['password'])));
+      $user->uid=$uid;
+      if($uid>0){
+        $ds=$_POST['datestamp0'];
+        $testdate=strftime($ds." 00:00:00",time());
+        $testintdate=strtotime($testdate);
+        $_POST['datestamp0']=$testintdate;
+        $ts->set_data_from_post(0);
+        $ret=$ts->commit_data(0,$uid);
+        if($ret){
+          echo "<data>\n<error>0</error>\n</data>";
+        }else{
+          echo "<data>\n<error>1</error>\n</data>";
+        }
+      }else{
+        echo "<data>\n<error>1</error>\n</data>";
+      }
+      break;
+
+  }
+}
+
+function timesaver_download($file) {
+  $headers = array(
+        'Content-Type: application/octet-stream ; name="' . $file . '"',
+        'Content-Disposition: attachment ; filename="' . $file . '"',
+        'Cache-Control: private',
+  );
+
+  file_transfer(file_directory_path() . '/timesaver/' . $file, $headers);
+}
+
+function timesaver_admin() {
+  return drupal_get_form('timesaver_admin_form');
+}
+
+
+function timesaver_user_profile() {
+  return drupal_get_form('timesaver_user_profile_form');
+}
+
+function timesaver_user_profile_form() {
+  global $user;
+  $nxtime_user=timesaver_get_user_data();
+
+  $form['timesaver_report_display_name'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Report Display Name',
+    '#default_value' => $nxtime_user['emp_name'],
+    '#size' => 60,
+    '#description' => t('The name to display at the top of the Approval page and Excel reports'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_employee_number'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Employee Number',
+    '#default_value' => $nxtime_user['emp_number'],
+    '#size' => 15,
+    '#description' => t('Your employee number'),
+    '#required' => FALSE,
+  );
+
+  $form['timesaver_special_exclusion'] = array(
+    '#type' => 'checkbox',
+    '#title' => 'Exclude From Reports',
+    '#default_value' => $nxtime_user['special_exclusion'],
+    '#size' => 15,
+    '#description' => t('Checking this off will exclude you from generated reports.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_uid'] = array(
+    '#type' => 'hidden',
+    '#title' => 'Userid',
+    '#default_value' => $user->uid,
+    '#size' => 15,
+    '#required' => TRUE
+  );
+
+  $form['timesaver_submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Submit',
+  );
+
+  return $form;
+}
+
+function timesaver_user_profile_form_submit($form, &$form_state) {
+  $empname=$form_state['values']['timesaver_report_display_name'];
+  $emp_number=$form_state['values']['timesaver_employee_number'];
+  $specialExclusion=$form_state['values']['timesaver_special_exclusion'];
+  $uid=$form_state['values']['timesaver_uid'];
+  db_query("DELETE FROM {timesaver_extra_user_data} WHERE uid=%d", $uid);
+  db_query("INSERT INTO {timesaver_extra_user_data} (uid, emp_name, emp_number, special_exclusion) VALUES (%d, '%s', '%s', %d)",
+  $uid, $empname, $emp_number, $specialExclusion);
+  drupal_set_message(t('Your personal Timesaver information has been saved.'));
+
+}
+
+function timesaver_admin_form() {
+
+  $form['timesaver_yui_location'] = array(
+    '#type' => 'textfield',
+    '#title' => 'YUI Location',
+    '#default_value' => variable_get('timesaver_yui_location', 'http://yui.yahooapis.com/2.7.0/build'),
+    '#size' => 60,
+    '#description' => t('Where the Yahoo User Interface is served from'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_number_of_days_after'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Number of days after current date',
+    '#default_value' => variable_get('timesaver_number_of_days_after', '5'),
+    '#size' => 3,
+    '#description' => t('Used when the start/end date was not passed in to the system properly'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_number_of_days_before'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Number of days before current date',
+    '#default_value' => variable_get('timesaver_number_of_days_before', '5'),
+    '#size' => 3,
+    '#description' => t('Used when the start/end date was not passed in to the system properly'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_payroll_start_date'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Date to start caculating payroll date spans from',
+    '#default_value' => variable_get('timesaver_payroll_start_date', '2012/1/2'),
+    '#size' => 7,
+    '#description' => t('This is the system default starting date to calculate the payroll date span from.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_payroll_date_span'] = array(
+    '#type' => 'textfield',
+    '#title' => 'Datespan for time entry',
+    '#default_value' => variable_get('timesaver_payroll_date_span', '14'),
+    '#size' => 3,
+    '#description' => t('The time entry screen will be limited to this number of days for entry.'),
+    '#required' => TRUE,
+  );
+
+
+  $form['timesaver_report_output_format'] = array(
+    '#type' => 'select',
+    '#title' => t('Report Output Format'),
+    '#default_value' => variable_get('timesaver_report_output_format', 'Excel5'),
+    '#options' => array(0 => 'Excel5', 1 => 'Excel 2007'),
+    '#description' => t('Excel 5 is for xls documents.  Excel 2007 is for xlsx documents.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_approval_history_span'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Approval History Span'),
+    '#default_value' => variable_get('timesaver_approval_history_span', 45),
+    '#size' => 3,
+    '#description' => t('How many days in the past the approval page will show.  Default is 45 days.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_reports_directory'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Where Reports are dumped to'),
+    '#default_value' => variable_get('timesaver_approval_history_span', 45),
+    '#size' => 3,
+    '#description' => t('How many days in the past the approval page will show.  Default is 45 days.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_list_id_supervisor_to_employee'] = array(
+    '#type' => 'textfield',
+    '#title' => t('listkeeper list ID for the Supervisor to Employee list'),
+    '#default_value' => variable_get('timesaver_list_id_supervisor_to_employee', 0),
+    '#size' => 3,
+    '#description' => t('listkeeper will show you the ID of the list for Supervisor to Employee.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_list_id_activities'] = array(
+    '#type' => 'textfield',
+    '#title' => t('listkeeper list ID for the Activities list'),
+    '#default_value' => variable_get('timesaver_list_id_activities', 0),
+    '#size' => 3,
+    '#description' => t('listkeeper will show you the ID of the list for Activities.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_list_id_projects'] = array(
+    '#type' => 'textfield',
+    '#title' => t('listkeeper list ID for the Projects list'),
+    '#default_value' => variable_get('timesaver_list_id_projects', 0),
+    '#size' => 3,
+    '#description' => t('listkeeper will show you the ID of the list for Projects.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_list_id_tasks'] = array(
+    '#type' => 'textfield',
+    '#title' => t('listkeeper list ID for the Tasks list'),
+    '#default_value' => variable_get('timesaver_list_id_tasks', 0),
+    '#size' => 3,
+    '#description' => t('listkeeper will show you the ID of the list for Tasks.'),
+    '#required' => TRUE,
+  );
+
+  $form['timesaver_list_id_delegates'] = array(
+    '#type' => 'textfield',
+    '#title' => t('listkeeper list ID for the Delegates list'),
+    '#default_value' => variable_get('timesaver_list_id_delegates', 0),
+    '#size' => 3,
+    '#description' => t('listkeeper will show you the ID of the list for Delegates.'),
+    '#required' => TRUE,
+  );
+
+
+
+  $form['#validate'] = array('timesaver_admin_form_validate');
+  return system_settings_form($form);
+}
+
+/**
+ * Form API callback to validate the upload settings form.
+ */
+
+function timesaver_admin_form_validate($form, &$form_state) {
+
+  $yuilocation = $form_state['values']['timesaver_yui_location'];
+  $daysafter = $form_state['values']['timesaver_number_of_days_after'];
+  $daysbefore = $form_state['values']['timesaver_number_of_days_before'];
+  $payrollstartdate = $form_state['values']['timesaver_payroll_start_date'];
+  $payrolldatespan = $form_state['values']['timesaver_payroll_date_span'];
+  $historyspan = $form_state['values']['timesaver_approval_history_span'];
+
+  if ($yuilocation=='') form_set_error('timesaver_yui_location', t('The YUI location must be specified.'));
+
+  if (!is_numeric($daysafter)) form_set_error('timesaver_number_of_days_after', t('The number of days after specified must be numeric.'));
+
+  if (!is_numeric($daysbefore)) form_set_error('timesaver_number_of_days_before', t('The number of days before specified must be numeric.'));
+
+  if ($payrollstartdate=='') form_set_error('timesaver_payroll_start_date', t('The payroll start date must be in the format YYYY/mm/dd.'));
+
+  if (!is_numeric($payrolldatespan)) form_set_error('timesaver_payroll_date_span', t('The payroll date span specified must be numeric.'));
+
+  if (!is_numeric($historyspan)) form_set_error('timesaver_approval_history_span', t('The history span specified must be numeric.'));
+}
+
+function timesaver_approvals() {
+  global $user;
+  include_once( drupal_get_path('module', 'timesaver') . "/timesaver.class.php");
+  $ts=new Timesaver();
+  drupal_set_breadcrumb('');
+  $currentpath = drupal_get_path('module', 'Timesaver');
+  drupal_add_js($currentpath .'/js/timesaver.js');
+  drupal_add_js($currentpath .'/js/nexYUICal.js');
+  drupal_add_css($currentpath .'/css/timesaver.css');
+  $emp = (intval($_GET['emp'])>0) ? ($_GET['emp']) : ($_GET['del']);
+  $emp=intval($emp);
+  $sup=intval($_GET['sup']);
+  $hide_fully_approved=intval($_GET['hidefullyapproved']);
+  $cookieHideFullyApproved=$_COOKIE['hidefullyapproved'];
+  $showAsTimesheet=intval($_GET['showAsTimesheet']);
+  $start_date=check_plain(strip_tags($_REQUEST['start_date']));
+  $end_date=check_plain(strip_tags($_REQUEST['end_date']));
+
+  $should_be_approving=$ts->test_if_user_can_approve($user->uid, $emp);
+  if (!$should_be_approving) {
+    return t('You do cannot approve timesheets for this user');
+  }
+
+  if ($start_date=='') {
+    $start_stamp=time()-(86400*variable_get('timesaver_number_of_days_before', 5));
+  }
+  else {
+    $start_stamp=strtotime($start_date);
+  }
+  if ($end_date=='') {
+    if ($start_date!='') {
+      $end_stamp=$start_stamp+(86400*variable_get('timesaver_number_of_days_after', 5));
+    }
+    else {
+      $end_stamp=time()+(86400*variable_get('timesaver_number_of_days_after', 5));
+    }
+  }
+  else {
+    $end_stamp=strtotime($end_date);
+  }
+  $numberOfDays=intval(($end_stamp-$start_stamp)/60/60/24)+1;
+
+  $uid=$user->uid;
+  if ($uid<1) {
+    return t("Sorry, you're not logged in.");
+  }
+  $hideapproved=FALSE;
+  if ($hide_fully_approved=='TRUE') {
+    $hideapproved=TRUE;
+    setcookie('hidefullyapproved', 'TRUE');
+  }
+  elseif ($hide_fully_approved=='FALSE') {
+    $hideapproved=FALSE;
+    setcookie('hidefullyapproved', 'FALSE');
+  }
+  elseif ($hide_fully_approved=='') { //condition where we're just entering into the page from somewhere else
+    if ($cookieHideFullyApproved== 'FALSE') {
+      $hideapproved=FALSE;
+    }
+  }
+  if ($end_stamp<$start_stamp) { //Hey! You can't have an end date thats less than the start date...
+    return t("Sorry, you can't have an end date that is before the start date!");
+  }
+  $finaloutput=theme('timesaver_js') . theme("timesaver_approve", $emp,
+  $sup,
+  $hide_fully_approved,
+  $hideapproved,
+  $cookieHideFullyApproved,
+  $showAsTimesheet,
+  $start_date,
+  $end_date,
+  $numberOfDays,
+  $uid );
+  return $finaloutput;
+}
+
+function timesaver_entry() {
+  global $user;
+
+  drupal_set_breadcrumb('');
+  $currentpath = drupal_get_path('module', 'Timesaver');
+  drupal_add_js($currentpath .'/js/timesaver.js');
+  drupal_add_js($currentpath .'/js/nexYUICal.js');
+  drupal_add_css($currentpath .'/css/timesaver.css');
+
+  if ($user->uid>0) {
+    include_once( drupal_get_path('module', 'timesaver') . "/timesaver.class.php");
+    $start_date=check_plain($_GET['start_date']);
+    $end_date=check_plain($_GET['end_date']);
+    $start_stamp=strtotime($start_date);
+    $end_stamp=strtotime($end_date);
+    $emp=intval($_GET['emp']);
+    if ($emp==0) $emp=$user->uid;
+    $numberOfDays=intval(($end_stamp-$start_stamp)/60/60/24)+1;
+    if ($end_stamp<$start_stamp) {  //Hey! You can't have an end date thats less than the start date...
+      echo t("You can't have an end date that's less than the start date.");
+      exit(0);
+    }
+    $ts=new Timesaver();
+    $timesheetArea=$ts->generate_table_header(FALSE, FALSE, $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $user->uid));
+    $retval=$ts->generate_timesheet_rows($emp, $start_stamp, $numberOfDays);
+    $timesheetArea .=$retval[1];
+    $timesheetArea .=$ts->generate_table_footer(FALSE, $retval[2], $retval[3], $retval[4], $retval[5], $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $emp));
+    $timesheetArea .=$ts->generate_total_row_count($retval[0]);
+    $output='';
+    $output=theme('timesaver_entry', $timesheetArea) . theme('timesaver_js');
+    return $output;
+  }
+  else {
+    return t('Entry is only for logged in users.  Please log in.');
+  }
+}
+
+function nxtime_generate_timesheet($uid=0, $disabled=FALSE, $is_approval=FALSE, $forWhichUser=0) {
+  global $user;
+
+  $start_date=check_plain($_REQUEST['start_date']);
+  $end_date=check_plain($_REQUEST['end_date']);
+  $start_stamp=strtotime($start_date);
+  $end_stamp=strtotime($end_date);
+  $numberOfDays=intval(($end_stamp-$start_stamp)/60/60/24)+1;
+  if ($uid==0) {
+    $uid=$user->uid;
+  }
+  if ($forWhichUser!=0) {
+    $uid=$forWhichUser;
+  }
+  $ts= new Timesaver();
+  $output='';
+  $output .=$ts->generate_table_header($disabled, $is_approval, $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $uid));
+  $retval=$ts->generate_timesheet_rows($uid, $start_stamp, $numberOfDays, NULL, 0, $disabled, $is_approval);
+  $output .=$retval[1];
+  $output .=$ts->generate_table_footer($is_approval, $retval[2], $retval[3], $retval[4], $retval[5], $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $uid));
+  $output .=$ts->generate_total_row_count($retval[0]);
+  return $output;
+}
+
+function timesaver_ajax() {
+  global $user, $base_url;
+  require_once("timesaver.class.php");
+  require_once("includes/ajax.php");
+}
+
+function timesaver_reports() {
+  global $_TIMESAVER_CONF, $_TIMESAVER_LANG_REPORT_COLUMNS, $_TIMESAVER_LANG_REPORT_FREE_FORM_COLUMNS , $conf;
+  $path = './' . drupal_get_path('module', 'timesaver');
+  //PHPExcel uses includes of its own.  If I do not provide an include path, PHPExcel fails to load properly.
+  //If there is an alternative to this, I'm all for changing this line of code
+  set_include_path(get_include_path() . PATH_SEPARATOR . $path);
+  include_once("PHPExcel.php");
+  include_once('PHPExcel/RichText.php');
+  include_once('PHPExcel/Cell.php');
+  include_once('PHPExcel/Writer/Excel5.php');
+  include_once('PHPExcel/Writer/Excel2007.php');
+  include_once('timesaver.class.php');
+
+  $op=($_REQUEST['op']);
+  $start_date=($_REQUEST['start_date']);
+  $end_date=($_REQUEST['end_date']);
+  $start_stamp=strtotime($start_date);
+  $end_stamp=strtotime($end_date);
+  $numberOfDays=intval(($end_stamp-$start_stamp)/60/60/24)+1;
+  $whichManager=($_REQUEST['whichManager']);
+
+  $showUNApproved=($_REQUEST['showunapproved']);
+  $showRejected=($_REQUEST['showrejected']);
+
+  $obj_php_excel = new PHPExcel();
+  $obj_php_excel->getProperties()->setCreator("Timesaver Timesheet System");
+  $obj_php_excel->getProperties()->setLastModifiedBy("Timesaver Timesheet System");
+  $obj_php_excel->getProperties()->setTitle("Office XLS Document");
+  $obj_php_excel->getProperties()->setSubject("Office XLS Document");
+  $obj_php_excel->getProperties()->setDescription("Timesheet report");
+  $obj_php_excel->getProperties()->setKeywords("Timesheet Report");
+  $obj_php_excel->getProperties()->setCategory("Timesheet report result file");
+
+  if ($start_date=='') {
+    $start_stamp=time()-(86400*variable_get('timesaver_number_of_days_before', '5'));
+  }
+  else {
+    $start_stamp=strtotime($start_date);
+  }
+  if ($end_date=='') {
+    if ($start_date!='') {
+      $end_stamp=$start_stamp+(86400*variable_get('timesaver_number_of_days_after', '5'));
+    }
+    else {
+      $end_stamp=time()+(86400*variable_get('timesaver_number_of_days_after', '5'));
+    }
+  }
+  else {
+    $end_stamp=strtotime($end_date);
+  }
+  $numberOfDays=intval(($end_stamp-$start_stamp)/60/60/24)+1;
+  $rptType=variable_get('timesaver_report_output_format', '0');
+  if ($rptType=='0') {
+    $rptExt="xls";
+    $PHPExcelType='PHPExcel_Writer_Excel5';
+  }
+  else {
+    $rptExt="xlsx";
+    $PHPExcelType='PHPExcel_Writer_Excel2007';
+  }
+
+  if (!is_dir(file_directory_path() . '/timesaver')) {
+    @mkdir(file_directory_path() . '/timesaver');
+  }
+
+  //self pruning mechanism that will delete any report from the directory if its
+  //older than 10 minutes.
+  if ($handle = opendir(file_directory_path() . '/timesaver')) {
+    while (false !== ($file = readdir($handle))) {
+      if ($file!='.' && $file!='..') {
+        $fp = @fopen(file_directory_path() . '/timesaver/' . $file, "r");
+        $fstat = @fstat($fp);
+        @fclose($fp);
+        if ($fstat['ctime']<(time()-600)) {
+          @unlink(file_directory_path() . '/timesaver/' . $file);
+        }
+      }
+    }
+    closedir($handle);
+  }
+
+  PHPExcel_Calculation::getInstance()->setCalculationCacheEnabled(false);
+
+
+  switch ($op) {
+    case 'byemployee':
+      include('reports/byEmployee.php');
+      $objWriter = new $PHPExcelType($obj_php_excel);
+      $reportname=  date('Y-m-d H.i') . ' By Employee Report.' . $rptExt;
+      $objWriter->save(file_directory_path() . '/timesaver/' . $reportname);
+      $url=l('Click here to view the report', 'timesaver_download/' . $reportname, array('attributes' => array('target' => '_new')));
+      $output=$url;
+      $error="";
+      break;
+
+
+    case 'bytask':
+      $listkeeper_id = intval(check_plain($_REQUEST['whichtask']));
+      $task = check_plain($_REQUEST['taskname']);
+      include('reports/byTask.php');
+      $objWriter = new $PHPExcelType($obj_php_excel);
+      $reportname=  date('Y-m-d H.i') . ' By Task Report.' . $rptExt;
+      $objWriter->save(file_directory_path() . '/timesaver/' . $reportname);
+      $url=l('Click here to view the report', 'timesaver_download/' . $reportname);
+      $output=$url;
+      $error="";
+      break;
+
+
+    case 'byproject':
+
+      $listkeeper_id = intval($_REQUEST['whichproject']);
+      $task = ($_REQUEST['projectname']);
+      include('reports/byProject.php');
+      $objWriter = new $PHPExcelType($obj_php_excel);
+      $reportname=  date('Y-m-d H.i') . ' By Project Report.' . $rptExt;
+      $objWriter->save(file_directory_path() . '/timesaver/' . $reportname);
+      $url=l('Click here to view the report', 'timesaver_download/' . $reportname);
+      $output=$url;
+      $error="";
+      break;
+
+    case 'byfreeform':
+      include('reports/byFreeForm.php');
+      $objWriter = new $PHPExcelType($obj_php_excel);
+      $reportname=  date('Y-m-d H.i') . ' Free Form Report.' . $rptExt;
+      $objWriter->save(file_directory_path() . '/timesaver/' . $reportname);
+      $url=l('Click here to view the report', 'timesaver_download/' . $reportname);
+      $output=$url;
+      $error="";
+      break;
+
+
+  }
+
+
+  $output=htmlentities($output);
+  $error=htmlentities($error);
+  $op=htmlentities($op);
+
+  $retval = "<result>";
+  $retval .= "<error>$error</error>";
+  $retval .= "<op>$op</op>";
+  $retval .= "<output>$output</output>";
+  $retval .= "</result>";
+
+
+  header("Cache-Control: no-store, no-cache, must-revalidate");
+  header("content-type: application/xml");
+  echo "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n";
+  echo $retval;
+
+}
+
+function timesaver_main() {
+  drupal_set_breadcrumb('');
+  $currentpath = drupal_get_path('module', 'Timesaver');
+  drupal_add_js($currentpath . '/js/timesaver.js');
+  drupal_add_js($currentpath . '/js/nexYUICal.js');
+  drupal_add_css($currentpath . '/css/timesaver.css');
+  return theme('timesaver_main_page');
+}
+
+function timesaver_theme() {
+  return array(
+    'timesaver_main_page' => array(
+      'template' => 'theme/main_page',
+      'arguments' => array()
+  ),
+
+    'timesaver_js' => array(
+      'template' => 'theme/timesaver_js',
+      'arguments' => array()
+  ),
+
+    'timesaver_approve' => array(
+      'template' => 'theme/approve',
+      'arguments' => array('emp' => NULL,
+                           'sup' => NULL,
+                           'hidefullyapproved' => NULL,
+                           'hideapproved' => NULL,
+                           'cookieHideFullyApproved' => NULL,
+                           'showAsTimesheet' => NULL,
+                           'start_date' => NULL,
+                           'end_date' => NULL,
+                           'numberOfDays' => NULL,
+                           'uid' => NULL )
+  ),
+
+    'timesaver_approval_row' => array(
+      'template' => 'theme/approval_row',
+      'arguments' => array()
+  ),
+
+    'timesaver_approval_user_row' => array(
+      'template' => 'theme/approval_user_row',
+      'arguments' => array()
+  ),
+
+    'timesaver_reports_row' => array(
+      'template' => 'theme/reports_row',
+      'arguments' => array()
+  ),
+
+    'timesaver_entry' => array(
+      'template' => 'theme/entry',
+      'arguments' => array('timesheet' => NULL)
+  ),
+
+    'timesaver_timesheet_entry_header' => array(
+      'template' => 'theme/timesheet_entry_header',
+      'arguments' => array('disabled' => NULL, 'isApproval' => NULL, 'isLocked' => NULL)
+  ),
+
+    'timesaver_timesheet_entry_footer' => array(
+      'template' => 'theme/timesheet_entry_footer',
+      'arguments' => array( 'disabled' => NULL,
+                            'isLocked' => NULL,
+                            'weeklytotals' => NULL,
+                            'grandtotals' => NULL,
+                            'othours' => NULL,
+                            'totalhours' => NULL
+  )
+  ),
+
+    'timesaver_timesheet_entry_row' => array(
+      'template' => 'theme/timesheet_entry_row',
+      'arguments' => array( 'TEMPLATE' => NULL,
+                            'ts' => NULL,
+                            'rownumber' => NULL,
+                            'today' => NULL,
+                            'thisDay' => NULL,
+                            'timesheetIsLocked' => NULL,
+                            'disable' => NULL,
+                            'isApproval' => NULL)
+  ),
+
+    'timesaver_timesheet_entry_row_multi_tasks' => array(
+      'template' => 'theme/timesheet_entry_row_multi_tasks',
+      'arguments' => array( 'TEMPLATE' => NULL,
+                            'ts' => NULL,
+                            'rownumber' => NULL,
+                            'today' => NULL,
+                            'thisDay' => NULL,
+                            'timesheetIsLocked' => NULL,
+                            'disable' => NULL,
+                            'isApproval' => NULL)
+  ),
+
+  );
+}
+
+function template_preprocess_timesaver_approve(&$variables) {
+  global $base_url, $user;
+
+  include_once('timesaver.class.php');
+  $ts=new Timesaver();
+  $start_stamp=intval(strtotime($variables['start_date']));
+  $end_stamp=intval(strtotime($variables['end_date']));
+  $variables['filter_complete_out']=t("Filter out completed items");
+  $variables['yui_base_url']=variable_get('timesaver_yui_location', 'http://yui.yahooapis.com/2.7.0/build');
+  $variables['site_url']=$base_url;
+  $variables['allfields']=$ts->get_table_columnns('timesaver_timesheet_entry');
+  $variables['disable']="display:none";
+  $variables['disable_on_lock']=" readonly ";
+  $variables['comment_disable']= '';
+  $variables['comment_edit_disable']= '';
+  $adjustment_save = ($ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp'])) ? '_adj' : '';
+  $variables['adj_postfix']= $adjustment_save;
+  if ($variables['hideapproved']) {
+    $variables['hidefullyapproved_check']='checked';
+  }
+  if ($variables['emp']>0) {//specific user
+    //first, detect if they should be seeing this user's timesheets
+    $shouldBeApproving=$ts->test_if_user_can_approve($variables['uid'], $variables['emp'] );
+    if (!$shouldBeApproving) {
+      return t('You are not elligible to be approving this timesheet.');
+    }
+
+    if ($variables['showAsTimesheet']==1) {
+      $variables['collapse_left_nav']='none;';
+      $output='';
+      if (user_access('Timesaver finance') && $variables['uid']!==1 ) {
+        $variables['comment_disable']= ' disabled ';
+        $variables['comment_edit_disable']= 'display:none';
+        $output .=$ts->generate_table_header(TRUE, TRUE, $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp']));
+        $retval=$ts->generate_timesheet_rows($variables['emp'], $start_stamp, $variables['numberOfDays'], NULL, 0, TRUE, TRUE);
+        $output .=$retval[1];
+        $output .=$ts->generate_table_footer(FALSE, $retval[2], $retval[3], $retval[4], $retval[5], $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp']));
+        $output .=$ts->generate_total_row_count($retval[0]);
+      }
+      else { //enable the timesheet for editing
+        $output .=$ts->generate_table_header(FALSE, TRUE, $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp']));
+        $retval=$ts->generate_timesheet_rows($variables['emp'], $start_stamp, $variables['numberOfDays'], NULL, 0, FALSE, TRUE);
+        $output .=$retval[1];
+
+        if ($ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp'])) {
+          $output .=$ts->generate_table_footer(TRUE, $retval[2], $retval[3], $retval[4], $retval[5], $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp']));
+        }
+        else {
+          $output .=$ts->generate_table_footer(FALSE, $retval[2], $retval[3], $retval[4], $retval[5], $ts->determine_if_item_is_in_lock_range_by_date_stamp($start_stamp, $variables['emp']));
+        }
+        $output .=$ts->generate_total_row_count($retval[0]);
+      }
+      $variables['approval_rows']=$output;
+      $variables['approval_all_table_style']='display:none';
+      $variables['approved_by']=$user->uid;
+      $variables['userinformation_table_style']='';
+
+      //using $emp, we generate the top information table
+      $userinf=timesaver_get_user_data($variables['emp']);
+      $variables['emp_sup']=$ts->get_user_full_name($ts->get_supervisor_uid($variables['emp']));
+      $variables['emp_number']=$userinf['emp_number'];
+      $variables['emp_name']=$userinf['emp_name'];
+
+    }
+    else {//show as line items
+      $output=$ts->generate_approval_timesheet_rows($variables['uid'], $variables['emp'], FALSE, $variables['hideapproved']);
+      $variables['approval_rows']=$output[1];
+      $variables['approval_all_table_style']='';
+      $variables['userinformation_table_style']='display:none;';
+    }
+  }
+  else {//all timesheets that this user can see
+    if ($variables['sup']>0) {
+      $output=$ts->generate_approval_timesheet_rows($variables['sup'], 0, FALSE, $variables['hideapproved'], TRUE);
+    }
+    else {
+      $output=$ts->generate_approval_timesheet_rows($variables['uid'], 0, FALSE, $variables['hideapproved'], FALSE);
+    }
+    $variables['approval_all_table_style']='';
+    $variables['userinformation_table_style']='display:none;';
+    $variables['approval_rows']=$output[1];
+  }
+
+  $variables['employee_label']=t("Employee");
+  $variables['employee_supervisor']=t("Supervisor");
+  $variables['employee_number']=t("Employee Number");
+  $url=l('Timesheet Home', 'Timesaver');
+  $variables['tshome']=$url;
+  $url=l(t('Approval'), 'timesaver_approvals', array('query' => array(
+          'emp' => $variables['emp'], 'start_date' => $variables['start_date'],'end_date' => $variables['end_date'])));
+  $variables['approval_url']=$url;
+
+}
+
+function template_preprocess_timesaver_timesheet_entry_row_multi_tasks(&$variables) {
+  template_preprocess_timesaver_timesheet_entry_row($variables);
+}
+
+function template_preprocess_timesaver_timesheet_entry_row(&$variables) {
+  global $base_url, $user, $_TIMESAVER_CONF;
+
+  $ts=$variables['ts'];  //just so i can reference this easily in code
+  $variables['images_dir']=drupal_get_path('module', 'Timesaver') . "/images";
+  $variables['site_url']=$base_url;
+  $dayColour = 'normal_days';
+  if ($variables['today'] == 0 || $variables['today'] == 6) {// 0 or 6 (sunday or saturday then change colour
+    $dayColour = 'weekend_days'; //d8e3ee';
+  }
+  $variables['day_colour']=$dayColour;
+  $variables['human_date_day']=$_TIMESAVER_CONF['day_offsets'][$variables['today']];
+  $variables['human_date_formatted']=date("Y/m/d", $variables['thisDay']);
+  $variables['timesaver_activity_options']=$ts->get_activities_drop_down($ts->_tables['timesaver_timesheet_entry']->fieldvals['timesaver_activity_id']);
+  $variables['project_options']=$ts->get_project_drop_down_from_activity_id($ts->_tables['timesaver_timesheet_entry']->fieldvals['timesaver_activity_id'], $ts->_tables['timesaver_timesheet_entry']->fieldvals['project_id']);
+  $variables['task_options']=$ts->get_task_drop_down_from_activity_id($ts->_tables['timesaver_timesheet_entry']->fieldvals['timesaver_activity_id'], $ts->_tables['timesaver_timesheet_entry']->fieldvals['task_id']);
+  $variables['totalhrs']=$ts->get_total_hrs_from_id($ts->_tables['timesaver_timesheet_entry']->fieldvals['id']);
+  $variables['othrs']=$ts->get_ot_hrs_from_id($ts->_tables['timesaver_timesheet_entry']->fieldvals['id']);
+  $variables['locked_or_not']='lock.png';
+  if ($variables['isApproval']) {
+    $variables['display_for_approval']='';
+  }
+  else {
+    $variables['display_for_approval']='none';
+  }
+  $variables['enable_on_lock']= 'display:none;';
+  if ($variables['timesheetIsLocked']) {
+    $variables['enable_on_lock']= '';
+  }
+
+  if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['locked']=='1' || $ts->_tables['timesaver_timesheet_entry']->fieldvals['approved']=='1' || $disable) {
+    if ($variables['isApproval']) {
+      $variables['disable_on_lock']=' disabled ';
+      $variables['adj_lock']= ' readonly ';
+      if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['locked']=='1') {
+        $variables['locked_or_not']='lock.png';
+        $variables['js_disable_on_lock']='locked';
+      }
+      else {
+        $variables['locked_or_not']='lock_add.png';
+        $variables['js_disable_on_lock']='';
+      }
+    }
+    else {
+      $variables['disable_on_lock']='';
+      if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['locked']=='1') {
+        $variables['locked_or_not']='lock.png';
+        $variables['js_disable_on_lock']='locked';
+      }
+      else {
+        $variables['locked_or_not']='lock_add.png';
+        $variables['js_disable_on_lock']='';
+      }
+    }
+  }
+  else {
+    $variables['locked_or_not']='lock_add.png';
+    $variables['disable_on_lock']='';
+    $variables['adj_lock']= '';
+  }
+  //now to test for the overriding fact that this timesheet range has been locked!
+  //if the following method returns TRUE, we set the disable_on_lock to disabled
+  if ($variables['timesheetIsLocked']) {
+    $variables['disable_on_lock']=' disabled ';
+    $variables['disabled_style']=' display:none; ';
+    $variables['locked_or_not']='lock.png';
+    $variables['adj_lock']= ' readonly ';
+  }
+
+  if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['rejected']=='1') {
+    $variables['rejected_style']='background-color:red;';
+    $variables['rejected_note']='Rejected';
+    $variables['chkreject_checked']='CHECKED';
+  }
+  else {
+    $variables['rejected_style']='';
+    $variables['rejected_note']='';
+    $variables['chkreject_checked']='';
+  }
+  if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['approved']=='1') {
+    $variables['rejected_style']='background-color:green;';
+    $variables['rejected_note']="Approved";
+    $variables['chkapproval_checked']='CHECKED';
+  }
+  else {
+    $variables['chkapproval_checked']='';
+  }
+  if ($ts->_tables['timesaver_timesheet_entry']->fieldvals['rejected']=='1' && !$variables['isApproval']) {
+    $variables['display_for_entry_rejection']='';
+  }
+  else {
+    $variables['display_for_entry_rejection']='none';
+  }
+  if ($TEMPLATE==NULL) { //we're in the main body to show specific main row vs. secondary row data
+    if ($ts->_tables['timesaver_timesheet_entry']->rows_returned==1) {
+      $variables['rowspan_value']='';
+      //set all fields now
+      foreach ($ts->_tables['timesaver_timesheet_entry']->fieldvals as $key => $value) {
+        $variables[$key]=filter_xss($value);
+      }
+    }
+    elseif ($ts->_tables['timesaver_timesheet_entry']->rows_returned>1) {//more than one task for this day here.....
+      foreach ($ts->_tables['timesaver_timesheet_entry']->fieldvals as $key => $value) {
+        $variables[$key]=$value;
+      }
+      //we must echo out a new row, but without the date column.  Thus this is a special case
+      $variables['rowspan_value']=' rowspan="' . $ts->_tables['timesaver_timesheet_entry']->rows_returned . '" ';
+    }
+    else {//nothing to display.. just carry on
+      $variables['datestamp']=$variables['thisDay'];
+      $variables['id']='';
+    }
+  }
+  else {  //for all intents and purposes, we're here because we have a secondary template to show
+    foreach ($ts->_tables['timesaver_timesheet_entry']->fieldvals as $key => $value) {
+      $variables[$key]=$value;
+    }
+  }
+
+  if ((user_access('Timesaver finance')) || (user_access('Timesaver supervisor')) && $variables['disable_on_lock']) {
+    $variables['disable_on_lock']='';
+  }
+}
+
+function template_preprocess_timesaver_timesheet_entry_footer(&$variables) {
+  global $base_url;
+
+  $variables['weekly_totals']=t('Total Hours:');
+  $variables['grand_totals']=t('Grand Totals');
+  $variables['site_url']=$base_url;
+  if ($variables['disabled']==TRUE) {
+    $variables['disabled_style']='none';
+  }
+  else {
+    $variables['disabled_style']='';
+  }
+
+  if ($variables['isLocked']==TRUE && ((user_access('Timesaver finance')) || (user_access('Timesaver supervisor')))) {
+    $variables['disabled_style']='';
+  }
+  else {
+    if ($variables['isLocked']) {
+      $variables['disabled_style']='none';
+    }
+  }
+  // output weekly totals
+  $variables['hide_weekly_totals']='display:none';
+  $weeklynumbers = '<td colspan=16></td>';
+  if ($variables['weeklytotals']) {
+    $variables['hide_weekly_totals']='';
+    $weeklynumbers = '';
+    foreach ($variables['weeklytotals'] as $field => $sum) {
+      if ($field != 'placeholder') {
+        $weeklynumbers .= '<td style="font-weight:bold">' . sprintf("%01.2f", $sum) . '</td>';
+      }
+      else {
+        $weeklynumbers .= '<td style="font-weight:bold"></td>';
+      }
+    }
+  }
+  $variables['weekly_numbers']=$weeklynumbers;
+  // output grand totals
+  $variables['hide_grand_totals']='display:none';
+  $grandnumbers = '<td colspan=16></td>';
+  if ($variables['grandtotals']) {
+    $variables['hide_grand_totals']='';
+    $grandnumbers = '';
+    foreach ($variables['grandtotals'] as $field => $sum) {
+      if ($field != 'placeholder') {
+        $grandnumbers .= '<td style="font-weight:bold">' . sprintf("%01.2f", $sum) . '</td>';
+      }
+      else {
+        $grandnumbers .= '<td style="font-weight:bold"></td>';
+      }
+    }
+  }
+  $variables['grand_numbers']=$grandnumbers;
+}
+
+function template_preprocess_timesaver_timesheet_entry_header(&$variables) {
+  global $base_url;
+
+  $variables['site_url']=$base_url;
+  if (!$variables['disabled']) {
+    $variables['onclick']="YAHOO.nextide.container.panel1.show();";
+  }
+  $variables['enable_on_lock']=";display:none";
+  if ($variables['isLocked']) {
+    $variables['enable_on_lock']="";
+  }
+  if ($variables['isApproval']) {
+    $variables['header_item_for_approval']="<th class='verticalText'>" . t('Approve') . "</th>";
+    $variables['header_item_for_reject']="<th class='verticalText'>" . t('Reject') . "</th>";
+  }
+  else {
+    $variables['header_item_for_approval']="";
+    $variables['header_item_for_reject']="";
+  }
+  $variables['images_dir']=drupal_get_path('module', 'Timesaver') . "/images";
+
+  $variables['timesaver_activity_id']=t('Activity ID');
+  $variables['project_id']=t('Project ID');
+  $variables['task_id']=t('Task ID');
+  $variables['regHourSelect']=t('TimeIn1Hour');
+  $variables['regMinSelect']=t('TimeIn1Min');
+  $variables['regAMSelect']=t('TimeIn1AM');
+  $variables['regMilitary']=t('TimeIn1Military');
+  $variables['regular_time']=t('Time In');
+  $variables['time_1_5']=t('Time* 1.5');
+  $variables['time_2_0']=t('Time* 2');
+  $variables['stat_time']=t('Time Out');
+  $variables['vacation_time_used']=t('Time In');
+  $variables['floater']=t('Floater');
+  $variables['sick_time']=t('Time Out');
+  $variables['bereavement']=t('Bereavement');
+  $variables['jury_duty']=t('Jury');
+  $variables['evening_hours']=t('Vacation');
+  $variables['other']=t('Sick');
+  $variables['comment']=t('Comment');
+  $variables['totalhrs']=t('Total');
+  $variables['unpaid_hrs']=t('Unpaid');
+  $variables['adjustment']=t('Adjustment');
+}
+
+function template_preprocess_timesaver_entry(&$variables) {
+  global $base_url, $user;
+
+  $start_date=check_plain($_GET['start_date']);
+  $end_date=check_plain($_GET['end_date']);
+  $emp=intval($_GET['emp']);
+  if ($emp==0) $emp=$user->uid;
+  $variables['site_url']=$base_url;
+  $variables['yui_base_url']=variable_get('timesaver_yui_location', 'http://yui.yahooapis.com/2.7.0/build');
+  $variables['start_date']=$start_date;
+  $variables['end_date']=$end_date;
+  $variables['approved_by']=$user->uid;
+  $variables['emp']=$emp;
+  $url=l('Timesheet Home', 'Timesaver');
+  $variables['tshome']=$url;
+}
+
+function template_preprocess_timesaver_reports_row(&$variables) {
+  $variables['report_by_employee_label']=t('Report By Employee');
+  $variables['report_by_task_label']=t('Report By Task');
+  $variables['report_by_project_label']=t('Report By Project');
+  $variables['report_by_free_form_label']=t('Free Form');
+}
+
+function template_preprocess_timesaver_main_page(&$variables) {
+  global $user;
+  include_once("timesaver.class.php");
+  $ts=new Timesaver();
+  $variables['yui_base_url']=variable_get('timesaver_yui_location', 'http://yui.yahooapis.com/2.7.0/build');
+  $variables['js']=theme('timesaver_js');
+
+  $variables['uid']=$user->uid;
+  $output=$ts->get_option_list_of_assigned_employees($user->uid, TRUE);
+  $variables['other_employee_dropdown']=$output;
+  $output=$ts->get_option_list_of_assigned_employees($uid);
+  $variables['employee_dropdown']= $output;
+  $variables['is_finance_show_supervisors']='none';
+  if (user_access('Timesaver supervisor') || user_access('administer Timesaver') || $user->uid==1) {
+    $variables['approval_row']= 'style=""';
+    $variables['reports_row']=theme('timesaver_reports_row');
+    $variables['get_supervisors']= $ts->get_supervisors_drop_down_list();
+    $variables['is_finance_show_supervisors']='';
+
+    $output = $ts->get_option_list_of_delegated_employees($user->uid, TRUE);
+    if (($output != '<option value=""></option>') && ($output != '<option value=""></option><option value="0">View All</option>')) {
+      $variables['delegated_employee_dropdown']= $output;
+    }
+  }
+  else {
+    $variables['approval_row']= 'style="display:none;"';
+    $variables['reports_row']='';
+  }
+  $variables['report_by_employee_label']=t('Report By Employee');
+  $variables['report_by_task_label']=t('Report By Task');
+  $variables['report_by_project_label']=t('Report By Project');
+  $variables['report_by_free_form_label']=t('Free Form');
+  $variables['for_which_supervisor']=t('For Which Supervisor?');
+  $variables['run_for_which_task']=t('For which task?');
+  $variables['run_for_which_project']=t('For which project?');
+  $variables['show_unapproved']=t('Show Unapproved');
+  $variables['show_rejected']=t('Show Rejected');
+  $variables['report_by_employee_go']=t('Run Report By Employee');
+  $variables['report_by_task_go']=t('Run Report By Task');
+  $variables['report_by_project_go']=t('Run Report By Project');
+  $variables['report_by_free_form_go']=t('Run Free Form Report');
+
+  $variables['get_tasks']= $ts->get_tasks_drop_down(FALSE, TRUE, 'options');
+  $variables['get_projects']= $ts->get_expanded_project_drop_down(TRUE);
+}
+
+function template_preprocess_timesaver_js(&$variables) {
+  global $base_url;
+  $variables['site_url']=$base_url;
+  $variables['ajax_url']=url('timesaver_ajax');
+  $variables['reports_ajax_url']=url('timesaver_reports');
+}
+
+function timesaver_get_user_data($uid=0) {
+  global $user;
+  if ($uid==0) $uid=$user->uid;
+  $sql='SELECT emp_name, emp_number, special_exclusion FROM {timesaver_extra_user_data} WHERE uid=%d';
+  $res=db_query($sql, $uid);
+  $retarray=array();
+  $cntr=0;
+  while ($A=db_fetch_object($res)) {
+    $cntr++;
+    foreach ($A as $key => $val) {
+      if ($key=='emp_name' && $val=='') {
+        $retarray[$key]=db_result(db_query('SELECT name FROM {users} WHERE uid=%d', $uid));
+      }
+      else {
+        $retarray[$key]=$val;
+      }
+    }
+  }
+  if ($cntr==0) {
+    $retarray['emp_name']=db_result(db_query('SELECT name FROM {users} WHERE uid=%d', $uid));
+  }
+  return $retarray;
+}
+
+
+
+
+
+
+

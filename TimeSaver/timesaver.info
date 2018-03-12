@@ -1,0 +1,13 @@
+; $Id: 
+name = Timesaver
+description = Timesaver Time Management System
+version = 6.x-1.0-rc3
+core = 6.x
+dependencies[] = listkeeper
+package = Time Management
+; Information added by drupal.org packaging script on 2013-10-19
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "timesaver"
+datestamp = "1382147179"
+

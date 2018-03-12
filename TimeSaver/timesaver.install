@@ -1,0 +1,295 @@
+<?php
+
+
+/**
+ * @file
+ * Install, update and uninstall functions for the Timesaver module.
+ */
+
+
+/**
+ * Implementation of hook_install().
+ */
+function timesaver_install() {
+  // Create tables and variables
+
+  drupal_install_schema('timesaver');
+  variable_set('timesaver_yui_location', 'http://yui.yahooapis.com/2.7.0/build');
+  variable_set('timesaver_number_of_days_after', '5');
+  variable_set('timesaver_number_of_days_before', '5');
+  variable_set('timesaver_payroll_start_date', '2012/1/2');
+  variable_set('timesaver_payroll_date_span', '14');
+  variable_set('timesaver_report_output_format', 0);
+  variable_set('timesaver_approval_history_span', 45);
+  variable_set('timesaver_list_id_supervisor_to_employee', 0);
+  variable_set('timesaver_list_id_activities', 0);
+  variable_set('timesaver_list_id_projects', 0);
+  variable_set('timesaver_list_id_tasks', 0);
+  variable_set('timesaver_list_id_delegates', 0);
+  variable_set('timesaver_number_of_days_to_show', '30');
+  include_once('sql/installation_sql.php');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function timesaver_uninstall() {
+  // Remove tables and variables
+  drupal_uninstall_schema('Timesaver');
+  variable_del('timesaver_yui_location');
+  variable_del('timesaver_number_of_days_after');
+  variable_del('timesaver_number_of_days_before');
+  variable_del('timesaver_payroll_start_date');
+  variable_del('timesaver_payroll_date_span');
+  variable_del('timesaver_report_output_format');
+  variable_del('timesaver_approval_history_span');
+  variable_del('timesaver_list_id_activities');
+  variable_del('timesaver_list_id_projects');
+  variable_del('timesaver_list_id_tasks');
+  variable_del('timesaver_list_id_delegates');
+  variable_del('timesaver_number_of_days_to_show');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function timesaver_schema() {
+  $schema['timesaver_timesheet_entry'] = array(
+  'description' => t('InnoDB free: 9216 kB'),
+  'fields' => array(
+    'id' => array(
+
+      'type' => 'serial',
+      'not null' => TRUE,
+    ),
+    'uid' => array(
+      'type' => 'int',
+      'size' => 'medium',
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'timesaver_activity_id' => array(
+      'type' => 'int',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'task_id' => array(
+      'type' => 'int',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'project_id' => array(
+      'type' => 'int',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'regular_time' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'time_1_5' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'time_2_0' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'evening_hours' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'standby' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'adjustment' => array(
+      'type' => 'numeric',
+      'not null' => TRUE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'vacation_time_used' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'stat_time' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'floater' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'sick_time' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'bereavement' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'jury_duty' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'unpaid_hrs' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'other' => array(
+      'type' => 'numeric',
+      'not null' => FALSE,
+      'default' => 0,
+      'precision' => '10',
+      'scale' => '2',
+    ),
+    'comment' => array(
+      'type' => 'text',
+      'not null' => FALSE,
+    ),
+    'datestamp' => array(
+      'type' => 'int',
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'locked' => array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'approved' => array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'rejected' => array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => FALSE,
+      'default' => 0,
+    ),
+    'rejected_comment' => array(
+      'type' => 'text',
+      'not null' => FALSE,
+    ),
+    'modified_by_uid' => array(
+      'type' => 'int',
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'rejected_by_uid' => array(
+      'type' => 'int',
+      'size' => 'medium',
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+    'ack_modified' => array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => TRUE,
+      'default' => 0,
+    ),
+  ),
+  'primary key' => array('id'),
+  'indexes' => array(
+    'IX_activity_id' => array('timesaver_activity_id'),
+    'IX_datestamp' => array('datestamp'),
+    'IX_project_id' => array('project_id'),
+    'IX_task_id' => array('task_id'),
+    'IX_uid' => array('uid'),
+  ),
+  );
+
+
+  $schema['timesaver_locked_timesheets'] = array(
+  'fields' => array(
+    'uid' => array(
+      'type' => 'int',
+      'size' => 'medium',
+      'not null' => TRUE,
+    ),
+    'startdate' => array(
+      'type' => 'int',
+      'not null' => TRUE,
+    ),
+    'enddate' => array(
+      'type' => 'int',
+      'not null' => TRUE,
+    ),
+  ),
+  'indexes' => array(
+    'IX_enddate' => array('enddate'),
+    'IX_startdate' => array('startdate'),
+    'IX_uid' => array('uid'),
+  ),
+  );
+
+  $schema['timesaver_extra_user_data'] = array(
+  'fields' => array(
+    'uid' => array(
+      'type' => 'int',
+      'size' => 'medium',
+      'not null' => TRUE,
+    ),
+    'emp_name' => array(
+      'type' => 'varchar',
+      'length' => '50',
+      'not null' => TRUE,
+    ),
+    'emp_number' => array(
+      'type' => 'varchar',
+      'length' => '10',
+      'not null' => FALSE,
+      'default' => '0',
+    ),
+    'special_exclusion' => array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => TRUE,
+    ),
+  ),
+  );
+
+
+  return $schema;
+}
