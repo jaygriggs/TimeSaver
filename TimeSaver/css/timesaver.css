@@ -1,0 +1,172 @@
+/* $Id: timesaver.css,v 1.9 Exp $ */
+
+.oddRow {
+	background-color: #a0a0a0;
+}
+	
+.evenRow {
+	background-color: #ffffff;
+}
+
+.actionLabel{
+    font-family: Verdana;
+    font-weight: bold;
+    font-size:  12pt;   
+}
+
+.verticalText{
+    /*writing-mode: tb-rl;   */
+    font-size:7pt;
+    text-align:center
+}
+
+.humanDateTable{
+    font-size:8pt; 
+    border:solid black 1px;
+    width:100%;  
+}
+
+.entryRowLeftCell{
+    border-left:solid black 1px;
+    border-top:solid black 1px;
+    border-bottom:solid black 1px;
+}
+
+.entryRowMiddleCell{
+    border-top:solid black 1px;
+    border-bottom:solid black 1px;
+}
+
+.entryRowRightCell{
+    border-right:solid black 1px;
+    border-top:solid black 1px;
+    border-bottom:solid black 1px;
+}
+
+.rowSpacing{
+    height:12px;   
+}
+
+.statusmessage{
+    background-color: #a0d0a0;
+    margin-left:15px;
+    margin-top:10px;
+    padding-top:2px;
+    padding-left:25px;
+    padding-right:25px;
+    padding-bottom:2px;
+    font-size: 10pt;
+    font-family: Verdana;
+    text-align:center;
+    position:absolute;
+}
+
+.newrow{
+    background-color: #d0a0a0; 
+    height:35px;  
+    
+}
+
+.approvalTimesheetTable{
+    font-family: Verdana;
+    font-size:  9pt;   
+    
+}
+
+.frontPageTable{
+    border: solid black 1px;
+    font-size:9pt;
+    font-family: Verdana;
+    width: 100%;  
+}
+
+.frontPageTableHeader{
+    border: solid black 1px;
+    font-family: Verdana;   
+}
+
+.userInformationTable{
+    border: solid black 1px;
+    font-family: Verdana;
+       
+    
+}
+
+.cutOffAt30Message{
+    padding-bottom:10px;
+    font-family: Verdana;
+    color:red;   
+    
+}
+
+.normal_days{
+    background-color: #ffffff;
+}
+
+.weekend_days{
+    background-color: #d8e3ee;
+}
+
+.dropdown_menus {
+    width:175px;
+	background-color: rgba(144, 227, 245, 1);
+}
+
+.savelogout {
+    margin-right:75px;
+    text-align:right;
+}
+
+/* YUI File details panel - close button was appearing as a un-styled link 
+   after force loading the container and menu.css at the top of this file
+*/
+.container-close {
+  background:url("http://yui.yahooapis.com/2.7.0/build/assets/skins/sam/sprite.png") no-repeat scroll 0 -300px transparent !important;
+  cursor:pointer;
+  height:18px !important;
+  position:absolute;
+  right:5px;
+  top:5px;
+  width:25px !important;
+}
+
+/* For themes with fluid layouts, the timesheet will cut off at the right boundary.  This alleviates taht issue.d
+*/
+
+
+.element {
+    border-collapse: none;
+}
+
+#timesheetdisplay th {
+    background: none repeat scroll 0% 0% #47403D;
+    color: #FFF;
+    font-size: .9em;
+}
+
+#timesheetdisplay  {
+    width:80%;
+    
+}
+
+#whichsupervisortorunas {
+visibility: hidden;
+}
+
+#whichmanager {
+visibility: hidden;
+}
+
+.statusmessage {
+background-color: #baba3f;
+}
+
+
+ input          {
+    background-color: rgba(144, 227, 245, 1);
+}
+
+select {
+background-color: rgba(144, 227, 245, 1);
+}
+
